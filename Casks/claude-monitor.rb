@@ -1,13 +1,13 @@
 cask "claude-monitor" do
-  version "1.0.1"
+  version "1.0.2"
 
   on_arm do
-    sha256 "19e9ac688c7e2574f8418098392d4ae9017679ba58eef2751bda6186ae1c8a76"
+    sha256 "cb6ed97bb688215ab039cfd2a9e2f3ca3a4adba8cb12c6686fc97877e3ca1ba0"
     url "https://github.com/kyutaekjung-wq/claude_usage_monitor_tool/releases/download/v#{version}/Claude.Monitor-#{version}-arm64.dmg"
   end
 
   on_intel do
-    sha256 "6f6e40200a87a22771bbd1aa580cc7448d7d8ee714c1d338706c550649410244"
+    sha256 "9edf8474865411ec6c6e92e0ab8d90116f47d71954f5fb2380870768b1d69276"
     url "https://github.com/kyutaekjung-wq/claude_usage_monitor_tool/releases/download/v#{version}/Claude.Monitor-#{version}.dmg"
   end
 
