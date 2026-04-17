@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude Monitor</title>
+<style>
+  :root {
+    --bg: rgb(18, 18, 28);
+    --border: rgba(255,255,255,0.09);
+    --text: #e8e8f0;
+    --subtext: #bbb;
+    --dim: #666;
+    --track: rgba(255,255,255,0.08);
+    --sep: rgba(255,255,255,0.07);
+    --acc-bg: rgba(255,255,255,0.04);
+    --btn-hover: rgba(255,255,255,0.07);
+    --check-accent: #8b7cf8;
+  }
+  [data-theme="light"] {
+    --bg: rgb(248, 248, 252);
+    --border: rgba(0,0,0,0.1);
+    --text: #1a1a2e;
+    --subtext: #555;
+    --dim: #999;
+    --track: rgba(0,0,0,0.07);
+    --sep: rgba(0,0,0,0.07);
+    --acc-bg: rgba(0,0,0,0.03);
+    --btn-hover: rgba(0,0,0,0.06);
+    --check-accent: #6b5cf0;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { background:transparent; height:100%; overflow:hidden; user-select:none;
+    font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display',sans-serif; font-size:13px; }
+
+  #app {
+    background: var(--bg);
+    border-radius:14px;
+    border:1px solid var(--border);
+    padding:12px 14px;
+    min-height:100vh;
+    max-height:100vh;
+    display:flex; flex-direction:column; gap:7px;
+    box-shadow:0 8px 32px rgba(0,0,0,0.4);
+    color: var(--text);
+    transition: background 0.2s, color 0.2s;
+    overflow-y:auto;
+  }
+  #app::-webkit-scrollbar { width: 5px; }
+  #app::-webkit-scrollbar-track { background:transparent; }
+  #app::-webkit-scrollbar-thumb { background:rgba(139,124,248,0.3); border-radius:3px; }
+  #app::-webkit-scrollbar-thumb:hover { background:rgba(139,124,248,0.6); }
+
+  /* 타이틀바 */
+  .titlebar { -webkit-app-region:drag; display:flex; align-items:center; gap:6px;
+    padding-bottom:7px; border-bottom:1px solid var(--sep); }
+  .titlebar .icon { color:#8b7cf8; font-size:14px; }
+  .titlebar .title { font-weight:600; font-size:13px; flex:1; color:var(--text); }
+  .dot { width:7px; height:7px; border-radius:50%; background:#2ecc71; flex-shrink:0; }
+  .dot.loading { background:#f59e0b; animation:pulse 1s infinite; }
+  .dot.error { background:#ef4444; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  .btn-row { -webkit-app-region:no-drag; display:flex; gap:3px; align-items:center; }
+  .icon-btn { background:transparent; border:none; cursor:pointer; font-size:13px;
+    width:22px; height:22px; border-radius:5px; display:flex; align-items:center;
+    justify-content:center; transition:background 0.15s; color:var(--subtext); }
+  .icon-btn:hover { background:var(--btn-hover); }
+
+  /* 핀 버튼 */
+  .pin-on  { color:#8b7cf8 !important; }
+  .pin-off { color:var(--dim) !important; filter:grayscale(1); opacity:0.6; }
+
+  /* 사용량 바 */
+  .bar-group { display:flex; flex-direction:column; gap:3px; }
+  .bar-header { display:flex; align-items:center; }
+  .bar-name { flex:1; font-size:12px; color:var(--subtext); }
+  .bar-pct { font-size:12px; font-variant-numeric:tabular-nums; font-weight:500; color:var(--subtext); }
+  .bar-track { height:9px; background:var(--track); border-radius:5px; overflow:hidden; }
+  .bar-fill { height:100%; border-radius:5px; transition:width 0.6s ease,background 0.4s; background:#3b82f6; }
+  .bar-fill.warn  { background:#f59e0b; }
+  .bar-fill.danger{ background:#ef4444; }
+  .bar-time { font-size:10px; color:var(--dim); }
+
+  .sep { height:1px; background:var(--sep); flex-shrink:0; }
+
+  /* 아코디언 */
+  .accordion { display:flex; flex-direction:column; gap:0; }
+  .accordion-toggle {
+    -webkit-app-region:no-drag;
+    background:transparent; border:none; cursor:pointer;
+    display:flex; align-items:center; gap:5px;
+    font-size:11px; color:var(--dim); padding:3px 0;
+    text-align:left; width:100%;
+    transition:color 0.15s;
+  }
+  .accordion-toggle:hover { color:var(--subtext); }
+  .accordion-toggle .arrow { transition:transform 0.2s; font-size:9px; }
+  .accordion-toggle.open .arrow { transform:rotate(180deg); }
+
+  .accordion-body {
+    -webkit-app-region:no-drag;
+    display:none; flex-direction:column; gap:8px;
+    padding:8px 0 4px 0;
+  }
+  .accordion-body.open { display:flex; }
+
+  /* 설정 행 */
+  .setting-row { display:flex; align-items:center; gap:8px; }
+  .setting-label { flex:1; font-size:11px; color:var(--subtext); }
+  .setting-row input[type=range] {
+    flex:1; accent-color:#8b7cf8; cursor:pointer; height:3px;
+  }
+  .setting-row input[type=checkbox] { accent-color:var(--check-accent); cursor:pointer; width:13px; height:13px; }
+  .opacity-val { font-size:10px; color:var(--dim); width:28px; text-align:right; }
+
+  /* 테마 토글 */
+  .theme-toggle { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--subtext); }
+  .toggle-track {
+    -webkit-app-region:no-drag;
+    width:34px; height:18px; border-radius:9px;
+    background:var(--track); border:1px solid var(--border);
+    cursor:pointer; position:relative; transition:background 0.2s; flex-shrink:0;
+  }
+  .toggle-track.active { background:#6b5cf0; }
+  .toggle-thumb {
+    width:13px; height:13px; border-radius:50%; background:#fff;
+    position:absolute; top:2px; left:2px;
+    transition:left 0.2s; box-shadow:0 1px 3px rgba(0,0,0,0.3);
+  }
+  .toggle-track.active .toggle-thumb { left:17px; }
+
+  /* 하단 */
+  .footer { -webkit-app-region:no-drag; display:flex; align-items:center; margin-top:auto; }
+  .update-time { flex:1; font-size:10px; color:var(--dim); }
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- 타이틀바 -->
+  <div class="titlebar">
+    <img src="claude-icon.png" alt="Claude" style="width:20px;height:20px;object-fit:contain" />
+    <span class="title">Claude Monitor</span>
+    <span class="dot" id="statusDot"></span>
+    <div class="btn-row">
+      <button class="icon-btn pin-off" id="pinBtn" title="항상 위에 고정" onclick="togglePin()">📌</button>
+      <button class="icon-btn" title="닫기" onclick="window.electronAPI ? window.electronAPI.closeApp() : window.close()" style="color:var(--dim)">✕</button>
+    </div>
+  </div>
+
+  <!-- 현재 세션 (항상 표시) -->
+  <div class="bar-group">
+    <div class="bar-header">
+      <span class="bar-name">현재 세션</span>
+      <span class="bar-pct" id="pct-session">---%</span>
+    </div>
+    <div class="bar-track"><div class="bar-fill" id="fill-session" style="width:0%"></div></div>
+    <div class="bar-time" id="time-session"></div>
+  </div>
+
+  <!-- 주간 모든 모델 -->
+  <div class="bar-group" id="group-weekly_all">
+    <div class="bar-header">
+      <span class="bar-name">주간 (모든 모델)</span>
+      <span class="bar-pct" id="pct-weekly_all">---%</span>
+    </div>
+    <div class="bar-track"><div class="bar-fill" id="fill-weekly_all" style="width:0%"></div></div>
+    <div class="bar-time" id="time-weekly_all"></div>
+  </div>
+
+  <!-- 주간 Sonnet -->
+  <div class="bar-group" id="group-weekly_sonnet">
+    <div class="bar-header">
+      <span class="bar-name">주간 (Sonnet)</span>
+      <span class="bar-pct" id="pct-weekly_sonnet">---%</span>
+    </div>
+    <div class="bar-track"><div class="bar-fill" id="fill-weekly_sonnet" style="width:0%"></div></div>
+    <div class="bar-time" id="time-weekly_sonnet"></div>
+  </div>
+
+  <div class="sep"></div>
+
+  <!-- 환경설정 아코디언 -->
+  <div class="accordion">
+    <button class="accordion-toggle" id="accToggle" onclick="toggleAccordion()">
+      ⚙ 환경설정 <span class="arrow" id="accArrow">▼</span>
+    </button>
+    <div class="accordion-body" id="accBody">
+      <!-- 그래프 표시 -->
+      <div class="setting-row">
+        <input type="checkbox" id="chkWeeklyAll" checked onchange="toggleBar('weekly_all', this.checked)">
+        <label class="setting-label" for="chkWeeklyAll">주간 (모든 모델) 표시</label>
+      </div>
+      <div class="setting-row">
+        <input type="checkbox" id="chkWeeklySonnet" checked onchange="toggleBar('weekly_sonnet', this.checked)">
+        <label class="setting-label" for="chkWeeklySonnet">주간 (Sonnet) 표시</label>
+      </div>
+      <div class="sep"></div>
+      <!-- 메뉴바 표시 방식 -->
+      <div class="setting-row">
+        <span class="setting-label">📊 메뉴바 표시</span>
+        <select id="trayMode" onchange="saveTrayMode()"
+          style="background:var(--track);color:var(--text);border:1px solid var(--border);border-radius:5px;padding:2px 6px;font-size:11px;cursor:pointer">
+          <option value="animation">🐾 떨리는 아이콘</option>
+          <option value="number" selected>🔢 숫자 %</option>
+          <option value="bar">📊 세로 바</option>
+          <option value="pie">⭕ 원형 차트</option>
+        </select>
+      </div>
+      <div class="sep"></div>
+      <!-- 조직 선택 -->
+      <div class="setting-row">
+        <span class="setting-label">🏢 조직</span>
+        <select id="orgSelect" onchange="changeOrg()"
+          style="flex:1;background:var(--track);color:var(--text);border:1px solid var(--border);border-radius:5px;padding:2px 6px;font-size:11px;cursor:pointer;min-width:0">
+          <option value="">자동 선택</option>
+        </select>
+      </div>
+      <div class="sep"></div>
+      <!-- 임계값 설정 -->
+      <div class="setting-row">
+        <span class="setting-label">⚠ 경고 임계값</span>
+        <input type="number" id="warnThreshold" min="1" max="99" value="50" onchange="saveThresholds()"
+          style="background:var(--track);color:var(--text);border:1px solid var(--border);border-radius:5px;padding:2px 6px;font-size:11px;width:50px;text-align:center">
+        <span class="opacity-val">%</span>
+      </div>
+      <div class="setting-row">
+        <span class="setting-label">🚨 위험 임계값</span>
+        <input type="number" id="alertThreshold" min="1" max="100" value="80" onchange="saveThresholds()"
+          style="background:var(--track);color:var(--text);border:1px solid var(--border);border-radius:5px;padding:2px 6px;font-size:11px;width:50px;text-align:center">
+        <span class="opacity-val">%</span>
+      </div>
+      <div class="sep"></div>
+      <!-- 알람 설정 -->
+      <div class="setting-row">
+        <input type="checkbox" id="chkAlarm" checked onchange="saveAlarmSetting()">
+        <label class="setting-label" for="chkAlarm">세션 재설정 알람</label>
+      </div>
+      <div class="setting-row" id="alarmMinRow">
+        <span class="setting-label" style="padding-left:18px">⏰ 몇 분 전</span>
+        <select id="alarmMinutes" onchange="saveAlarmSetting()"
+          style="background:var(--track);color:var(--text);border:1px solid var(--border);border-radius:5px;padding:2px 6px;font-size:11px;cursor:pointer">
+          <option value="20">20분</option>
+          <option value="15">15분</option>
+          <option value="10" selected>10분</option>
+          <option value="5">5분</option>
+          <option value="0">재설정 시</option>
+        </select>
+      </div>
+      <!-- 투명도 -->
+      <div class="setting-row">
+        <span class="setting-label">투명도</span>
+        <input type="range" min="10" max="100" value="94" id="opacitySlider" oninput="setOpacity(this.value)">
+        <span class="opacity-val" id="opacityVal">94%</span>
+      </div>
+      <div class="sep"></div>
+      <!-- 다크/라이트 모드 -->
+      <div class="theme-toggle">
+        <span>라이트</span>
+        <div class="toggle-track" id="themeToggle" onclick="toggleTheme()">
+          <div class="toggle-thumb"></div>
+        </div>
+        <span>다크</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 하단 -->
+  <div class="footer">
+    <span class="update-time" id="updateTime">불러오는 중...</span>
+    <button id="loginBtn" onclick="startLogin()" style="display:none;background:#8b7cf8;color:white;border:none;border-radius:5px;padding:3px 8px;font-size:11px;cursor:pointer;margin-right:4px">🔐 로그인</button>
+    <button class="icon-btn" onclick="refresh()" title="지금 갱신" style="color:var(--dim)">↻</button>
+  </div>
+</div>
+
+<script>
+const REFRESH_MS = 60000;
+let pinned = false;
+let theme = localStorage.getItem('theme') || 'dark';
+
+// 테마 초기화
+function applyTheme() {
+  document.documentElement.setAttribute('data-theme', theme);
+  const t = document.getElementById('themeToggle');
+  if (theme === 'dark') t.classList.add('active'); else t.classList.remove('active');
+  localStorage.setItem('theme', theme);
+}
+applyTheme();
+
+// 설정 복원
+window.addEventListener('DOMContentLoaded', () => {
+  const wa = localStorage.getItem('showWeeklyAll');
+  const ws = localStorage.getItem('showWeeklySonnet');
+  if (wa === 'false') { document.getElementById('chkWeeklyAll').checked = false; toggleBar('weekly_all', false); }
+  if (ws === 'false') { document.getElementById('chkWeeklySonnet').checked = false; toggleBar('weekly_sonnet', false); }
+  const op = localStorage.getItem('opacity') || '94';
+  document.getElementById('opacitySlider').value = op;
+  setOpacity(op, false);
+  const alarmEnabled = localStorage.getItem('alarmEnabled');
+  if (alarmEnabled === 'false') document.getElementById('chkAlarm').checked = false;
+  const alarmMin = localStorage.getItem('alarmMinutes') || '10';
+  document.getElementById('alarmMinutes').value = alarmMin;
+  document.getElementById('warnThreshold').value = localStorage.getItem('warnThreshold') || '50';
+  document.getElementById('alertThreshold').value = localStorage.getItem('alertThreshold') || '80';
+  const tm = localStorage.getItem('trayMode') || 'number';
+  document.getElementById('trayMode').value = tm;
+  if (window.electronAPI && window.electronAPI.setTrayMode) window.electronAPI.setTrayMode(tm);
+});
+
+function getThresholds() {
+  return {
+    warn:  parseInt(localStorage.getItem('warnThreshold')  || '50'),
+    alert: parseInt(localStorage.getItem('alertThreshold') || '80'),
+  };
+}
+
+function saveThresholds() {
+  let w = parseInt(document.getElementById('warnThreshold').value) || 50;
+  let a = parseInt(document.getElementById('alertThreshold').value) || 80;
+  w = Math.max(1, Math.min(98, w));
+  a = Math.max(w + 1, Math.min(100, a)); // n < m 강제
+  // input 값도 보정
+  document.getElementById('warnThreshold').value = w;
+  document.getElementById('alertThreshold').value = a;
+  // input max/min 동적 제약
+  document.getElementById('warnThreshold').max = a - 1;
+  document.getElementById('alertThreshold').min = w + 1;
+  localStorage.setItem('warnThreshold', w);
+  localStorage.setItem('alertThreshold', a);
+  refresh();
+  if (window.electronAPI && window.electronAPI.setThresholds) {
+    window.electronAPI.setThresholds({ warn: w, alert: a });
+  }
+}
+
+function setBar(key, pct, timeLeft) {
+  const fill = document.getElementById('fill-' + key);
+  const pctEl = document.getElementById('pct-' + key);
+  const timeEl = document.getElementById('time-' + key);
+  if (!fill) return;
+  const t = getThresholds();
+  fill.style.width = Math.min(pct, 100) + '%';
+  fill.className = 'bar-fill' + (pct >= t.alert ? ' danger' : pct >= t.warn ? ' warn' : '');
+  pctEl.textContent = pct.toFixed(0) + '%';
+  pctEl.style.color = pct >= t.alert ? '#ef4444' : pct >= t.warn ? '#f59e0b' : 'var(--subtext)';
+  timeEl.textContent = timeLeft || '';
+}
+
+const BAR_STORAGE_KEY = { weekly_all: 'showWeeklyAll', weekly_sonnet: 'showWeeklySonnet' };
+function toggleBar(key, visible) {
+  const g = document.getElementById('group-' + key);
+  if (g) g.style.display = visible ? '' : 'none';
+  const k = BAR_STORAGE_KEY[key];
+  if (k) localStorage.setItem(k, visible ? 'true' : 'false');
+}
+
+function setStatus(s) {
+  const d = document.getElementById('statusDot');
+  d.className = 'dot' + (s==='loading'?' loading':s==='error'?' error':'');
+}
+
+async function refresh() {
+  setStatus('loading');
+  document.getElementById('updateTime').textContent = '갱신 중...';
+  try {
+    let data;
+    if (window.electronAPI) {
+      const res = await window.electronAPI.fetchUsage();
+      if (!res.ok) {
+        if (res.needLogin) {
+          document.getElementById('updateTime').textContent = '🔐 로그인 필요';
+          document.getElementById('loginBtn').style.display = 'inline-flex';
+          setStatus('error');
+          return;
+        }
+        throw new Error(res.error || '오류');
+      }
+      document.getElementById('loginBtn').style.display = 'none';
+      data = res.data;
+    } else if (window.pywebview) {
+      data = JSON.parse(await window.pywebview.api.fetch());
+    } else { throw new Error('API 없음'); }
+    if (data.error) throw new Error(data.error);
+    setBar('session', data.session.pct, data.session.time_left);
+    setBar('weekly_all', data.weekly_all.pct, data.weekly_all.time_left);
+    setBar('weekly_sonnet', data.weekly_sonnet.pct, data.weekly_sonnet.time_left);
+    checkAlarm(data.session.time_left, data.session.resets_at);
+    const n = new Date();
+    document.getElementById('updateTime').textContent =
+      `갱신: ${n.getHours().toString().padStart(2,'0')}:${n.getMinutes().toString().padStart(2,'0')}`;
+    setStatus('ok');
+  } catch(e) {
+    document.getElementById('updateTime').textContent = '오류: ' + e.message.substring(0, 28);
+    setStatus('error');
+  }
+}
+
+function saveTrayMode() {
+  const mode = document.getElementById('trayMode').value;
+  localStorage.setItem('trayMode', mode);
+  if (window.electronAPI && window.electronAPI.setTrayMode) {
+    window.electronAPI.setTrayMode(mode);
+  }
+}
+
+async function loadOrgs() {
+  if (!window.electronAPI || !window.electronAPI.getOrgs) return;
+  try {
+    const r = await window.electronAPI.getOrgs();
+    if (!r || !r.ok) return;
+    const sel = document.getElementById('orgSelect');
+    const currentVal = sel.value || r.current || '';
+    sel.innerHTML = '<option value="">자동 선택</option>' +
+      r.orgs.map(o => `<option value="${o.uuid}">${o.name}</option>`).join('');
+    sel.value = currentVal;
+  } catch(e) { console.error('orgs load fail', e); }
+}
+
+async function changeOrg() {
+  const orgId = document.getElementById('orgSelect').value;
+  if (!window.electronAPI || !window.electronAPI.setOrg) return;
+  document.getElementById('updateTime').textContent = '조직 변경 중...';
+  setStatus('loading');
+  const res = await window.electronAPI.setOrg(orgId);
+  if (res.ok) {
+    setBar('session', res.data.session.pct, res.data.session.time_left);
+    setBar('weekly_all', res.data.weekly_all.pct, res.data.weekly_all.time_left);
+    setBar('weekly_sonnet', res.data.weekly_sonnet.pct, res.data.weekly_sonnet.time_left);
+    const n = new Date();
+    document.getElementById('updateTime').textContent =
+      `갱신: ${n.getHours().toString().padStart(2,'0')}:${n.getMinutes().toString().padStart(2,'0')}`;
+    setStatus('ok');
+  } else {
+    document.getElementById('updateTime').textContent = '변경 실패';
+    setStatus('error');
+  }
+}
+
+async function startLogin() {
+  if (!window.electronAPI || !window.electronAPI.login) return;
+  document.getElementById('updateTime').textContent = '브라우저 창에서 로그인 중...';
+  document.getElementById('loginBtn').style.display = 'none';
+  setStatus('loading');
+  const res = await window.electronAPI.login();
+  if (res.ok) {
+    setBar('session', res.data.session.pct, res.data.session.time_left);
+    setBar('weekly_all', res.data.weekly_all.pct, res.data.weekly_all.time_left);
+    setBar('weekly_sonnet', res.data.weekly_sonnet.pct, res.data.weekly_sonnet.time_left);
+    document.getElementById('updateTime').textContent = '로그인 완료';
+    setStatus('ok');
+  } else {
+    document.getElementById('updateTime').textContent = '로그인 실패: ' + (res.error || '');
+    document.getElementById('loginBtn').style.display = 'inline-flex';
+    setStatus('error');
+  }
+}
+
+function togglePin() {
+  pinned = !pinned;
+  const btn = document.getElementById('pinBtn');
+  btn.className = 'icon-btn ' + (pinned ? 'pin-on' : 'pin-off');
+  if (window.electronAPI) window.electronAPI.setAlwaysOnTop(pinned);
+}
+
+function resizeToContent() {
+  if (!window.electronAPI || !window.electronAPI.resizeWindow) return;
+  requestAnimationFrame(() => {
+    const app = document.getElementById('app');
+    // 제약 임시 해제하고 실제 컨텐츠 높이 측정
+    const mh = app.style.maxHeight, nh = app.style.minHeight;
+    app.style.maxHeight = 'none';
+    app.style.minHeight = 'auto';
+    const h = app.scrollHeight;
+    app.style.maxHeight = mh;
+    app.style.minHeight = nh;
+    const needed = Math.max(180, Math.min(h + 4, 700));
+    window.electronAPI.resizeWindow(needed);
+  });
+}
+
+function toggleAccordion() {
+  const body = document.getElementById('accBody');
+  const toggle = document.getElementById('accToggle');
+  body.classList.toggle('open');
+  toggle.classList.toggle('open');
+  if (body.classList.contains('open')) loadOrgs();
+  // 창 크기를 컨텐츠에 맞게 조절
+  setTimeout(resizeToContent, 50);
+}
+
+function toggleTheme() {
+  theme = theme === 'dark' ? 'light' : 'dark';
+  applyTheme();
+}
+
+function setOpacity(val, save=true) {
+  document.body.style.opacity = (val / 100).toFixed(2);
+  document.getElementById('opacityVal').textContent = val + '%';
+  if (save) localStorage.setItem('opacity', val);
+}
+
+// 초기화
+// 알람 상태
+let _sessionResetAt = null;
+let _alarmFired = false;
+
+function saveAlarmSetting() {
+  localStorage.setItem('alarmEnabled', document.getElementById('chkAlarm').checked);
+  localStorage.setItem('alarmMinutes', document.getElementById('alarmMinutes').value);
+}
+
+function checkAlarm(timeLeftStr, resetAtRaw) {
+  const enabled = document.getElementById('chkAlarm').checked;
+  if (!enabled || !resetAtRaw) return;
+  try {
+    const resetAt = new Date(resetAtRaw);
+    const diffMin = (resetAt - Date.now()) / 60000;
+    const threshold = parseInt(document.getElementById('alarmMinutes').value);
+    // 새 세션이면 알람 리셋
+    if (_sessionResetAt !== resetAtRaw) { _sessionResetAt = resetAtRaw; _alarmFired = false; }
+    const effectiveThreshold = threshold === 0 ? 1 : threshold;
+    if (!_alarmFired && diffMin >= 0 && diffMin <= effectiveThreshold) {
+      _alarmFired = true;
+      const msg = `${Math.ceil(diffMin)}분 후 세션이 재설정됩니다`;
+      if (window.electronAPI) window.electronAPI.showNotification('Claude Monitor', msg);
+      else if (Notification.permission === 'granted') new Notification('Claude Monitor', { body: msg });
+    }
+  } catch(_) {}
+}
+
+let _initialized = false;
+function initApp() {
+  if (_initialized) return;
+  _initialized = true;
+  // trayMode 즉시 반영
+  const tm = localStorage.getItem('trayMode') || 'number';
+  if (window.electronAPI.setTrayMode) window.electronAPI.setTrayMode(tm);
+  // threshold 즉시 반영 (Tray 동기화)
+  const w = parseInt(localStorage.getItem('warnThreshold') || '50');
+  const a = parseInt(localStorage.getItem('alertThreshold') || '80');
+  if (window.electronAPI.setThresholds) window.electronAPI.setThresholds({ warn: w, alert: a });
+  refresh();
+  setInterval(refresh, REFRESH_MS);
+  loadOrgs();
+}
+
+const _poll = setInterval(() => {
+  if (window.electronAPI) {
+    clearInterval(_poll);
+    initApp();
+    if (window.electronAPI.onTriggerRefresh) window.electronAPI.onTriggerRefresh(() => refresh());
+  }
+}, 100);
+setTimeout(() => clearInterval(_poll), 10000);
+window.addEventListener('pywebviewready', initApp);
+setTimeout(() => { if (window.pywebview && !_initialized) initApp(); }, 1500);
+</script>
+</body>
+</html>

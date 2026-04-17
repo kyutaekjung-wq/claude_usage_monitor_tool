@@ -1,0 +1,15 @@
+# OS
+.DS_Store
+# Python
+__pycache__/
+*.pyc
+*.pyo
+# Node
+node_modules/
+# Build 결과물
+electron/dist/
+electron/mac/
+electron/mac-arm64/
+# 로컬 개발
+.omc/
+/tmp-*
