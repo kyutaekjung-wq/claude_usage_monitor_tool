@@ -1,13 +1,13 @@
 cask "claude-monitor" do
-  version "1.0.0"
+  version "1.0.1"
 
   on_arm do
-    sha256 "b6613f83830b7ff33c8526298443021f083b50082b81b3348b8c4ae656f51851"
+    sha256 "19e9ac688c7e2574f8418098392d4ae9017679ba58eef2751bda6186ae1c8a76"
     url "https://github.com/kyutaekjung-wq/claude_usage_monitor_tool/releases/download/v#{version}/Claude.Monitor-#{version}-arm64.dmg"
   end
 
   on_intel do
-    sha256 "f678921b68448968b1284770648c00337f6f2ad84883461daf8d798b2a33e0d8"
+    sha256 "6f6e40200a87a22771bbd1aa580cc7448d7d8ee714c1d338706c550649410244"
     url "https://github.com/kyutaekjung-wq/claude_usage_monitor_tool/releases/download/v#{version}/Claude.Monitor-#{version}.dmg"
   end
 
@@ -16,6 +16,12 @@ cask "claude-monitor" do
   homepage "https://github.com/kyutaekjung-wq/claude_usage_monitor_tool"
 
   app "Claude Monitor.app"
+
+  postflight do
+    system_command "/usr/bin/xattr",
+                   args: ["-dr", "com.apple.quarantine", "#{appdir}/Claude Monitor.app"],
+                   sudo: false
+  end
 
   zap trash: [
     "~/Library/Application Support/claude-monitor",
