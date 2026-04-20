@@ -1,6 +1,6 @@
 {
   "name": "claude-monitor",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Claude 사용량 실시간 모니터",
   "main": "electron_main.js",
   "scripts": {
