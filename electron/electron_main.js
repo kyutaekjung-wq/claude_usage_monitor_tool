@@ -333,70 +333,120 @@ ipcMain.handle('fetch-usage', async () => {
 });
 
 // Electron BrowserWindow로 Claude.ai 로그인 (Cloudflare 통과)
+// 캡처한 세션을 실제 API로 검증한 뒤에만 저장 — stale 쿠키로 인한 false-positive 방지
 ipcMain.handle('login', async () => {
+  const { session, net } = require('electron');
+  const ses = session.fromPartition('persist:claude-login');
+  // partition에 남은 stale 쿠키가 즉시 매칭되어 창이 바로 닫히는 문제 방지
+  await ses.clearStorageData({ storages: ['cookies'] });
+
   return new Promise((resolve) => {
-    const { session } = require('electron');
     const loginWin = new BrowserWindow({
       width: 500,
       height: 700,
       title: 'Claude 로그인',
       webPreferences: {
-        partition: 'persist:claude-login',
+        session: ses,
         contextIsolation: true,
         nodeIntegration: false,
       },
     });
-    const ses = loginWin.webContents.session;
     loginWin.loadURL('https://claude.ai/login');
 
     let handled = false;
+    let pageReady = false;
+    let validateFailCount = 0;
+    const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
+
+    // 초기 로드 완료 후 1초 후부터 캡처 활성화 — loadURL 직후 첫 navigation에서 오발동 방지
+    loginWin.webContents.once('did-finish-load', () => {
+      setTimeout(() => { pageReady = true; }, 1000);
+    });
+
+    // 캡처한 세션을 organizations API로 실제 검증
+    function validateSession(orgId) {
+      return new Promise((resolveValidate) => {
+        const req = net.request({
+          method: 'GET',
+          url: 'https://claude.ai/api/organizations',
+          session: ses,
+        });
+        req.setHeader('Accept', 'application/json');
+        req.on('response', (res) => {
+          resolveValidate(res.statusCode >= 200 && res.statusCode < 300);
+          res.on('data', () => {});
+        });
+        req.on('error', () => resolveValidate(false));
+        req.end();
+      });
+    }
 
     async function tryCapture() {
-      if (handled) return;
+      if (handled || !pageReady) return;
       const cookies = await ses.cookies.get({ domain: '.claude.ai' });
       const sessionKey = cookies.find(c => c.name === 'sessionKey' && c.value.startsWith('sk-ant-sid'));
       const orgCookie = cookies.find(c => c.name === 'lastActiveOrg');
-      if (sessionKey && orgCookie) {
-        handled = true;
-        // Playwright storage state 형식으로 변환
-        const playwrightCookies = cookies.map(c => ({
-          name: c.name,
-          value: c.value,
-          domain: c.domain,
-          path: c.path || '/',
-          expires: c.expirationDate || -1,
-          httpOnly: c.httpOnly || false,
-          secure: c.secure || false,
-          sameSite: c.sameSite === 'no_restriction' ? 'None' : c.sameSite === 'lax' ? 'Lax' : 'Strict',
-        }));
-        const state = { cookies: playwrightCookies, origins: [] };
-        const fs = require('fs');
-        const os = require('os');
-        const appDir = path.join(os.homedir(), 'Library/Application Support/claude-monitor');
-        if (!fs.existsSync(appDir)) fs.mkdirSync(appDir, { recursive: true });
-        fs.writeFileSync(path.join(appDir, 'storage.json'), JSON.stringify(state, null, 2));
-        fs.writeFileSync(path.join(appDir, 'meta.json'), JSON.stringify({ orgId: orgCookie.value }));
-        loginWin.close();
+      if (!sessionKey || !orgCookie) return;
 
-        // 저장된 세션으로 즉시 데이터 fetch
-        const { fetchUsage } = require('./fetch_usage.js');
-        const result = await fetchUsage({ allowLoginPrompt: false });
-        if (result.ok && tray) {
-          setTrayUsage(result.data.session.pct);
-          updateTrayMenu(result.data);
+      // 검증 단계: 실제로 인증된 세션인지 확인
+      const valid = await validateSession(orgCookie.value);
+      if (!valid) {
+        validateFailCount++;
+        if (validateFailCount >= 5) {
+          handled = true;
+          loginWin.close();
+          resolve({ ok: false, error: '쿠키 검증 실패. 다시 로그인해 주세요.' });
         }
-        resolve(result);
+        return;
       }
+
+      handled = true;
+      // Playwright storage state 형식으로 변환
+      const playwrightCookies = cookies.map(c => ({
+        name: c.name,
+        value: c.value,
+        domain: c.domain,
+        path: c.path || '/',
+        expires: c.expirationDate || -1,
+        httpOnly: c.httpOnly || false,
+        secure: c.secure || false,
+        sameSite: c.sameSite === 'no_restriction' ? 'None' : c.sameSite === 'lax' ? 'Lax' : 'Strict',
+      }));
+      const state = { cookies: playwrightCookies, origins: [] };
+      const fs = require('fs');
+      const os = require('os');
+      const appDir = path.join(os.homedir(), 'Library/Application Support/claude-monitor');
+      if (!fs.existsSync(appDir)) fs.mkdirSync(appDir, { recursive: true });
+      fs.writeFileSync(path.join(appDir, 'storage.json'), JSON.stringify(state, null, 2));
+      fs.writeFileSync(path.join(appDir, 'meta.json'), JSON.stringify({ orgId: orgCookie.value }));
+      loginWin.close();
+
+      // 저장된 세션으로 즉시 데이터 fetch
+      const { fetchUsage } = require('./fetch_usage.js');
+      const result = await fetchUsage({ allowLoginPrompt: false });
+      if (result.ok && tray) {
+        setTrayUsage(result.data.session.pct);
+        updateTrayMenu(result.data);
+      }
+      resolve(result);
     }
 
-    // 페이지 로드 이벤트마다 체크
     loginWin.webContents.on('did-navigate', tryCapture);
     loginWin.webContents.on('did-navigate-in-page', tryCapture);
-    // 주기적 체크 (2초마다)
     const interval = setInterval(tryCapture, 2000);
+
+    // 5분 타임아웃 — 무한 대기 방지
+    const timeout = setTimeout(() => {
+      if (!handled) {
+        handled = true;
+        loginWin.close();
+        resolve({ ok: false, error: '로그인 대기 시간 초과 (5분)' });
+      }
+    }, LOGIN_TIMEOUT_MS);
 
     loginWin.on('closed', () => {
       clearInterval(interval);
+      clearTimeout(timeout);
       if (!handled) resolve({ ok: false, error: '로그인 취소됨' });
     });
   });
